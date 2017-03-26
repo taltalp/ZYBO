@@ -52,6 +52,7 @@ architecture Behavioral of sccb_top is
     signal addr : std_logic_vector(7 downto 0);
     signal subaddr : std_logic_vector(7 downto 0);
     signal w_data : std_logic_vector(7 downto 0);
+    signal r_data : std_logic_vector(7 downto 0);
     
     signal sccb_en : std_logic;
     
@@ -70,8 +71,8 @@ begin
     write <= not addr_ip(0);
     read  <= addr_ip(0);
     
-    sda_dp <= sda;
-    sck_op <= sck when sccb_en = '0' else '1';
+    sda_dp <= sda when out_en = '1' else 'Z';
+    sck_op <= sck when sccb_en = '1' else '1';
     sccb_en_op <= sccb_en;
 
     done_op <= done;
@@ -90,8 +91,8 @@ begin
                 cycle <= '0';
                 out_en <= '1';
                 
-                sccb_en <= '1';
-                sda <= 'Z';
+                sccb_en <= '0';
+                sda <= '1';
                 
                 bit_cnt <= (others => '0');
                 
@@ -99,7 +100,8 @@ begin
             else 
                 if (state = s_idle) then
                     busy <= '0';
-                    sccb_en <= '1';
+                    out_en <= '1';
+                    sccb_en <= '0';
                     sda <= '1';
                     
                     bit_cnt <= (others => '0');
@@ -130,15 +132,17 @@ begin
                                 when s_start =>
                                     busy <= '1';
                                     state <= s_addr;
+                                    out_en <= '1';
                                     sda <= '0';
                                 when s_addr =>
-                                    sccb_en <= '0';
+                                    sccb_en <= '1';
                                     
                                     if (bit_cnt < "1000") then
+                                        out_en <= '1';
                                         sda <= addr(7 - conv_integer(bit_cnt));
                                         bit_cnt <= bit_cnt + 1;
                                     else
-                                        sda <= 'Z';
+                                        out_en <= '0';
                                         bit_cnt <= "0000";
                                         
                                         if (read = '1' and cycle = '1') then
@@ -148,14 +152,13 @@ begin
                                         end if;
                                     end if;
                                 when s_subaddr =>
-                                    busy <= '1';
-                                    
                                     if (bit_cnt < "1000") then
-                                        out_en <= '0';
+                                        out_en <= '1';
+                                        sccb_en <= '1';
                                         sda <= subaddr(7 - conv_integer(bit_cnt));
                                         bit_cnt <= bit_cnt + 1;
                                     else
-                                        sda <= 'Z';
+                                        out_en <= '0';
                                         bit_cnt <= "0000";
                                         
                                         cycle <= read;
@@ -166,26 +169,37 @@ begin
                                             state <= s_write;
                                         end if;
                                     end if;
-                                when s_read =>
-                                    state <= s_idle; -- Not Implemented
-                                when s_write =>
-                                    busy <= '1';
                                     
+                                when s_read =>
                                     if (bit_cnt < "1000") then
+                                        out_en <= '0';
+                                        r_data(7 - conv_integer(bit_cnt)) <= sda_dp;
+                                        bit_cnt <= bit_cnt + 1;
+                                    else
+                                        out_en <= '1';
+                                        sda <= '1';
+                                        bit_cnt <= "0000";
+                                        state <= s_idle;
+                                    end if;
+
+                                when s_write =>
+                                    if (bit_cnt < "1000") then
+                                        out_en <= '1';
                                         sda <= w_data(7 - conv_integer(bit_cnt));
                                         bit_cnt <= bit_cnt + '1';
                                     else
                                         bit_cnt <= "0000";
-                                        sda <= 'Z';
+                                        out_en <= '0';
+                                        sda <= '0';
                                         state <= s_stop;
                                     end if;
                                 when s_stop =>
                                     if(bit_cnt < "0001") then
-                                        sda <= '0';
-                                        sccb_en <= '0';
+                                        out_en <= '1';
+                                        sccb_en <= '1';
                                         bit_cnt <= bit_cnt + 1;
                                     else
-                                        sccb_en <= '1';
+                                        sccb_en <= '0';
                                         state <= s_idle;
                                         bit_cnt <= "0000";
                                     end if;
